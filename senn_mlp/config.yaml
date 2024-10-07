@@ -1,9 +1,9 @@
 meta:
-    logdir: /logs
-    name: untitled
+    logdir: /work/inestp02/xipe_markus/self-expanding-neural-networks/senn_mlp/logs
+    name: logs
 data:
-  root: /datasets
+  root: /work/inestp02/xipe_markus/self-expanding-neural-networks/senn_mlp/datasets
   defaults:
-    root: /datasets
+    root: /work/inestp02/xipe_markus/self-expanding-neural-networks/senn_mlp/datasets
 checkpointing:
-  directory: /checkpoints
+  directory: /work/inestp02/xipe_markus/self-expanding-neural-networks/senn_mlp/checkpoints

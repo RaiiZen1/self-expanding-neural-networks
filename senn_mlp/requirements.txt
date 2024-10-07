@@ -1,6 +1,14 @@
+jax==0.4.13
+jaxlib==0.4.13
+flax==0.7.0
+orbax-checkpoint==0.2.7
+optax==0.1.7
+chex==0.1.81
+torch
+torchvision
+tensorflow
 tbp-nightly
 matplotlib
-flax
 confuse
 rtpt
 tqdm
