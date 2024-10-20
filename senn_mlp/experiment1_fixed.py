@@ -830,11 +830,14 @@ def main():
     example = dataset[0]
 
     ################################################################################################
-    cfg["net"]["contents"] = [11]  # Set your desired initial sizes here
-    cfg["net"]["capacities"] = [128]  # Set your desired maximum sizes here
+    # cfg["net"]["contents"] = [11]  # Set your desired initial sizes here
+    # cfg["net"]["capacities"] = [128]  # Set your desired maximum sizes here
 
+    # capacities = tuple(cfg["net"]["capacities"].get() + [int(out_size)])
+    # initial_contents = list(cfg["net"]["contents"].get() + [int(out_size)])
+    ################################################################################################
     capacities = tuple(cfg["net"]["capacities"].get() + [int(out_size)])
-    initial_contents = list(cfg["net"]["contents"].get() + [int(out_size)])
+    initial_contents = list(cfg["net"]["contents"].get())
     ################################################################################################
 
     # capacities = tuple(cfg["net"]["capacities"].get() + [int(out_size)])
