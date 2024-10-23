@@ -163,6 +163,30 @@ class ImgVecClass(Classification):
         return jax.vmap(jnp.ravel)(dataset), labels
 
 
+class SklGenClass(Classification):
+
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.train_seed = cfg["data"]["train_seed"].get()
+        self.test_seed = cfg["data"]["test_seed"].get()
+
+    def get_data(self, _, test=False, index=0):
+        data_cfg = self.cfg["data"]
+        assert (
+            data_cfg["name"].get(None) == "make_moons"
+        ), "only make_moons is supported"
+        from sklearn.datasets import make_moons
+
+        data, labels = make_moons(
+            n_samples=data_cfg["TN"].get() if test else data_cfg["N"].get(),
+            noise=data_cfg["noise"].get(),
+            random_state=(
+                data_cfg["test_seed"].get() if test else data_cfg["train_seed"].get()
+            ),
+        )
+        return jnp.array(data), jnp.array(labels)
+
+
 class Solver:
     """probably should be further factored"""
 
@@ -705,6 +729,19 @@ class Proposer:
 
     def propose_feature(self, state, layer_index):
         raise NotImplementedError
+        if layer_index == 0:
+            input_size = self.model.apply(
+                state, index=0, func=Layer.input_size, method=self.model.lift
+            )
+            input_null = jnp.zeros((input_size,), dtype=jnp.bool_)
+        else:
+            input_null = self.model.apply(
+                state, index=layer_index - 1, func=Layer.null, method=self.model.lift
+            )
+        input_null = self.get_input_null(state, layer_index)
+        feature = self.new_feature(input_null)
+        fstate = self.embed_feature(state, feature, layer_index)
+        return feature, fstate
 
     def verify_state(self, state):
         nulls = self.model.apply(state, method=self.model.nulls)
@@ -755,11 +792,18 @@ def process_task(cfg):
         out_size = task.out_size
         return task, train, test, out_size
     elif task_type == "classification":
-        task = ImgVecClass(cfg)
-        train = task.get_data(cfg, test=False)
-        test = task.get_data(cfg, test=True)
-        out_size = test[1].max() + 1
-        return task, train, test, out_size
+        if cfg["task"]["sklearn"].get(False):
+            task = SklGenClass(cfg)
+            train = task.get_data(cfg, test=False)
+            test = task.get_data(cfg, test=True)
+            out_size = test[1].max() + 1
+            return task, train, test, out_size
+        else:
+            task = ImgVecClass(cfg)
+            train = task.get_data(cfg, test=False)
+            test = task.get_data(cfg, test=True)
+            out_size = test[1].max() + 1
+            return task, train, test, out_size
 
     else:
         raise ValueError(f"unrecognised task type: {task_type}")
@@ -810,7 +854,7 @@ def locate_neurons(state, layer=0, wrt=0):
 
 
 def main():
-    cfg = experiment_utils.get_cfg("experiment1")
+    cfg = experiment_utils.get_cfg("experiment2")
     writer = experiment_utils.set_writer(cfg)
 
     key = key_iter(cfg["meta"]["seed"].get())
@@ -829,8 +873,19 @@ def main():
 
     example = dataset[0]
 
+    ################################################################################################
+    # cfg["net"]["contents"] = [11]  # Set your desired initial sizes here
+    # cfg["net"]["capacities"] = [128]  # Set your desired maximum sizes here
+
+    # capacities = tuple(cfg["net"]["capacities"].get() + [int(out_size)])
+    # initial_contents = list(cfg["net"]["contents"].get() + [int(out_size)])
+    ################################################################################################
     capacities = tuple(cfg["net"]["capacities"].get() + [int(out_size)])
-    initial_contents = list(cfg["net"]["contents"].get() + [int(out_size)])
+    initial_contents = list(cfg["net"]["contents"].get())
+    ################################################################################################
+
+    # capacities = tuple(cfg["net"]["capacities"].get() + [int(out_size)])
+    # initial_contents = list(cfg["net"]["contents"].get() + [int(out_size)])
     use_rationals = cfg["net"]["rational"].get(False)
     template = ModelTemplate(capacities, initial_contents, rational=use_rationals)
     solver = Solver(cfg, template, task, next(key), example)
@@ -964,10 +1019,11 @@ def main():
             )
             old_state = solver.state
             solver.state = self.new_state
-            assert (
-                self.layer_index > 0
-            ), "cannot guess new size because there is no preceding layer"
-            new_size = solver.template.contents[self.layer_index - 1]
+
+            if self.layer_index > 0:
+                new_size = solver.template.contents[self.layer_index - 1]
+            else:
+                new_size = proposer.get_input_size(solver.state, layer_index=0)
             solver.template.contents[self.layer_index] = new_size
             refresh_evaluators()
             print(f"Created new layer at {self.layer_index} with size: {new_size}")
@@ -985,7 +1041,7 @@ def main():
     def consider_adding_width(evaluator, validator, layer_index, final=False):
         nonlocal save_index
         nonlocal just_added
-        landscape_results = dict(dataset=dataset[..., 0], datalabels=labels[..., 0])
+        landscape_results = dict(dataset=dataset, datalabels=labels)
         neuron_positions, neuron_scales = locate_neurons(solver.state)
         landscape_results.update(
             dict(neuron_positions=neuron_positions, neuron_scales=neuron_scales)
@@ -1013,38 +1069,14 @@ def main():
             solver.state, solver.optimizer.raw_grad(solver.opt_state)
         )
 
-        feat_positions = jnp.linspace(-3.0, 3.0, num=300)
-        feat_scales = jnp.logspace(-1.5, 1.5, num=300)
-        landscape_results.update(dict(position=feat_positions, scale=feat_scales))
-        landscape_results.update(
-            dict(
-                label=jax.vmap(task.target_func)(feat_positions[:, None]),
-                pred=jax.vmap(solver.model.apply, in_axes=(None, 0))(
-                    solver.state, feat_positions[:, None]
-                ),
-            )
-        )
-
-        featgrid = jax.experimental.maps.xmap(
-            make_feature,
-            (["pos"], ["scale"], ["const"], ["lin"], ["vec"]),
-            (["pos", "scale", "const", "lin", "vec", ...]),
-        )(
-            feat_positions,
-            feat_scales,
-            jnp.linspace(0.0, 1.0, num=5),
-            jnp.linspace(-1.0, 1.0, num=9),
-            jnp.linspace(-1.0, 1.0, num=9),
-        )
-
-        grid_metrics, layer_score, _ = jax.experimental.maps.xmap(
-            validator,
-            ([...], [...], [...], ["pos", "scale", "const", "lin", "vec", ...], [...]),
-            (["pos", "scale", "const", "lin", "vec", ...], [...], [...]),
-        )(solver.state, tangent, full_grad, featgrid, addition_validation_batch)
-        landscape_results.update(dict(metrics=grid_metrics, layer_score=layer_score))
-
-        location_metrics = grid_metrics.max(axis=(-1, -2, -3))
+        vis_x0 = jnp.linspace(-3.0, 3.0, 100)
+        vis_x1 = jnp.linspace(-3.0, 3.0, 100)
+        vis_y = jax.experimental.maps.xmap(
+            lambda p, x0, x1: solver.model.apply(p, jnp.array([x0, x1])),
+            ([...], ["x0"], ["x1"]),
+            (["x0", "x1", ...]),
+        )(solver.state, vis_x0, vis_x1)
+        landscape_results.update(dict(x0=vis_x0, x1=vis_x1, pred=vis_y))
 
         if cfg["evo"]["pure_kfac"].get(False):
             tangent = jtm(jnp.zeros_like, tangent)
@@ -1087,7 +1119,12 @@ def main():
 
         for i in range(1):
             opt_state, layer_score, loss_sqnorm = step(opt_state)
-            best = jnp.argmax(opt_state.rmetrics)
+
+            best = jax.random.categorical(
+                next(proposer.key_iter),
+                logits=opt_state.rmetrics / (temp * layer_score),
+                shape=(),
+            )
 
             best_raw = jnp.sum(
                 jax.nn.softmax(opt_state.rmetrics / (temp * layer_score))
@@ -1133,7 +1170,7 @@ def main():
             and best_raw / loss_sqnorm > cfg["evo"]["abs_thresh"].get()
         )
 
-        if going_to_add or just_added or is_final:
+        if (going_to_add or just_added or is_final) and layer_index == 0:
             landscape_results.update(dict(just_added=just_added))
             just_added = False
             print("Saving feature landscape...")
@@ -1153,6 +1190,7 @@ def main():
             return None
 
     def consider_inserting_layer(evaluator, validator, layer_index):
+
         assert solver.template.contents[layer_index] is None
         baseline = baseline_eval()
         num_props = cfg["evo"]["layer_proposals_per_layer"].get()
@@ -1190,6 +1228,7 @@ def main():
         opt_state = OptState(
             jnp.zeros((num_props,)), jnp.ones((num_props,)) * init_eps, featstack
         )
+        temp = cfg["evo"]["proposal_temperature"].get()
 
         def step(state):
             rmetrics, featstack, layer_score, loss_sqnorm = evaluator(
@@ -1200,6 +1239,7 @@ def main():
                 addition_batch,
                 state.epss,
                 jax.random.split(next(proposer.key_iter), num_props),
+                temp,
             )
             inc = rmetrics > state.rmetrics
             return (
@@ -1214,11 +1254,14 @@ def main():
             opt_state, layer_score, loss_sqnorm = step(opt_state)
 
             best = jax.random.categorical(
-                next(proposer.key_iter), logits=opt_state.rmetrics / 1e1, shape=()
+                next(proposer.key_iter),
+                logits=opt_state.rmetrics / (temp * layer_score),
+                shape=(),
             )
 
             best_raw = jnp.sum(
-                jax.nn.softmax(opt_state.rmetrics / 1e1) * opt_state.rmetrics
+                jax.nn.softmax(opt_state.rmetrics / (temp * layer_score))
+                * opt_state.rmetrics
             )
             best_ratio = 1.0 + best_raw / baseline
 
@@ -1283,6 +1326,43 @@ def main():
         else:
             return None
 
+    def diagnose():
+        print("---- DIAGNOSIS ----:")
+        solver_grad = insert_params(
+            solver.state, solver.optimizer.SG.read(solver.opt_state)
+        )
+        print(f"solver_grad: {solver_grad}")
+        solver_ngrad = insert_params(
+            solver.state, solver.optimizer.read(solver.opt_state)
+        )
+        print(f"solver_ngrad: {solver_ngrad}")
+
+        def eval_model(state):
+            return jax.vmap(partial(solver.model.apply, state))(dataset)
+
+        Y, backward = jax.vjp(eval_model, solver.state)
+
+        def item_grad(l, y):
+            return jax.grad(partial(solver.task.loss_function, l))(y)
+
+        raw_dloss = jax.vmap(item_grad)(labels, Y)
+        print(f"raw_dloss: {raw_dloss}")
+        raw_grad = backward(raw_dloss)
+        print(f"raw_grad: {raw_grad}")
+
+        def forward(tan_state):
+            Y, out = jax.jvp(eval_model, (solver.state,), (tan_state,))
+            return out
+
+        Jngrad = forward(solver_ngrad)
+        print(f"Jngrad: {Jngrad}")
+        out_res = raw_dloss - Jngrad
+        print(f"out_res: {out_res}")
+        raw_res = backward(out_res)
+        print(f"raw_res: {raw_res}")
+        Fngrad = backward(Jngrad)
+        print(f"Fngrad: {Fngrad}")
+
     evaluators = [get_evaluator(i) for i in range(len(solver.template.contents[:-1]))]
     validators = [get_validator(i) for i in range(len(solver.template.contents[:-1]))]
 
@@ -1325,7 +1405,7 @@ def main():
     layer_cooldown = 0
     initial_epoch = initial_train_state.epoch
     for epoch in range(initial_epoch, max_epochs):
-        is_final = epoch == max_epochs - 1
+        is_final = (epoch == max_epochs - 1) or (epoch == 0)
 
         for bidx, batch in enumerate(train_sampler.batches()):
 
@@ -1341,55 +1421,7 @@ def main():
         proposer.verify_state(solver.state)
 
         if epoch % cfg["evo"]["cooldown"].get(20) == 0 or is_final:
-            summary.scalar(f"outer_baseline", baseline_eval())
-            conts = solver.template.contents
-            caps = solver.template.capacities
-
-            def consider(stuff):
-                layeridx, (cont, cap) = stuff
-                if cont is not None:
-                    if cont < cap - 1:
-                        return consider_adding_width(
-                            evaluators[layeridx],
-                            validators[layeridx],
-                            layeridx,
-                            final=is_final,
-                        )
-                    else:
-                        return None
-                else:
-                    if (
-                        layeridx == 0
-                        or conts[layeridx - 1] is not None
-                        and layer_cooldown <= 0
-                    ):
-                        return consider_inserting_layer(
-                            evaluators[layeridx], validators[layeridx], layeridx
-                        )
-                    else:
-                        return None
-
-            best_props = list(map(consider, enumerate(zip(conts, caps))))
-            best_props = [p for p in best_props if p is not None]
-            while len(best_props) > 0:
-                best = max(best_props, key=lambda p: p.ratio if p is not None else 0.0)
-                best.apply()
-                just_added = True
-                if isinstance(best, DepthModification):
-                    print("recompiling...")
-                    solver.recompile()
-                    print(solver.state)
-                    layer_cooldown = cfg["evo"]["layer_cooldown"].get(0)
-                else:
-                    print("recompiling...")
-                    solver.recompile()
-                if not cfg["evo"]["recursive"].get(False):
-                    break
-                best_props = list(map(consider, enumerate(zip(conts, caps))))
-                best_props = [p for p in best_props if p is not None]
-
-            if layer_cooldown > 0:
-                layer_cooldown -= 1
+            pass  # Disabled network evolution
 
         if (
             cfg["checkpointing"]["enable"].get(False)
@@ -1427,18 +1459,6 @@ def main():
 
     print(f"\nChange in number of parameters: {final_params - initial_params}")
     print(f"Relative change: {(final_params - initial_params) / initial_params:.2%}")
-    ################################################################################################
-
-    # Optionally, save to a file
-    with open(f"{cfg['meta']['name'].get()}_final_architecture.txt", "w") as f:
-        f.write("Final network architecture:\n")
-        for i, layer_size in enumerate(template.contents):
-            if layer_size is not None:
-                f.write(f"Layer {i}: {layer_size} neurons\n")
-            else:
-                f.write(f"Layer {i}: Not active\n")
-        f.write(f"Total number of parameters: {final_params}\n")
-
     ################################################################################################
 
     exit()

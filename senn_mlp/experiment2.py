@@ -1374,6 +1374,23 @@ def main():
 
     refresh_evaluators()
 
+    ################################################################################################
+    print("Initial network architecture:")
+    for i, layer_size in enumerate(template.contents):
+        if layer_size is not None:
+            print(f"Layer {i}: {layer_size} neurons")
+        else:
+            print(f"Layer {i}: Not active")
+
+    initial_params = sum(
+        jax.tree_util.tree_leaves(
+            jax.tree_map(lambda x: x.size, solver.state["params"])
+        )
+    )
+    print(f"Initial number of parameters: {initial_params}")
+    print("\n" + "=" * 50 + "\n")  # This adds a separator for clarity
+    ################################################################################################
+
     layer_cooldown = 0
     initial_epoch = initial_train_state.epoch
     for epoch in range(initial_epoch, max_epochs):
@@ -1461,6 +1478,38 @@ def main():
             pass
 
         rtpt.step()
+
+    ################################################################################################
+    print("Final network architecture:")
+    for i, layer_size in enumerate(template.contents):
+        if layer_size is not None:
+            print(f"Layer {i}: {layer_size} neurons")
+        else:
+            print(f"Layer {i}: Not active")
+
+    final_params = sum(
+        jax.tree_util.tree_leaves(
+            jax.tree_map(lambda x: x.size, solver.state["params"])
+        )
+    )
+    print(f"Final number of parameters: {final_params}")
+
+    print(f"\nChange in number of parameters: {final_params - initial_params}")
+    print(f"Relative change: {(final_params - initial_params) / initial_params:.2%}")
+    ################################################################################################
+
+    # Optionally, save to a file
+    with open(f"{cfg['meta']['name'].get()}_final_architecture.txt", "w") as f:
+        f.write("Final network architecture:\n")
+        for i, layer_size in enumerate(template.contents):
+            if layer_size is not None:
+                f.write(f"Layer {i}: {layer_size} neurons\n")
+            else:
+                f.write(f"Layer {i}: Not active\n")
+        f.write(f"Total number of parameters: {final_params}\n")
+
+    ################################################################################################
+
     exit()
 
 
