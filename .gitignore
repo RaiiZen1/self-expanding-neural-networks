@@ -1,4 +1,8 @@
 # Byte-compiled / optimized / DLL files
+senn_mlp/datasets/MNIST/raw
+senn_mlp/logs
+senn_mlp/checkpoints
+*.txt
 *.npz
 *.gz
 __pycache__/
