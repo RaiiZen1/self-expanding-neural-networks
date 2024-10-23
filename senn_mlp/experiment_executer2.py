@@ -77,7 +77,7 @@ def run_experiment(seed):
         seed (int): The seed value to be used for the experiment.
     """
     config_path = "experiment2/default_config.yaml"
-    architecture_path = "senn_mlp/final_architectures/experiment2/"
+    architecture_path = "final_architectures/experiment2/"
 
     # Modify the seed
     modify_yaml_line(config_path, "seed", seed)
