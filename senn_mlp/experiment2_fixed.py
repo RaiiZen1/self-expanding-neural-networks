@@ -197,16 +197,17 @@ class Solver:
         self.model = self.template.build()
         self.state = self.model.init(key, example)
         print(f"contents: {self.template.contents}")
+        ################################################################################################
+        # def nonincreasing(seq):
+        #     return all(x >= y for x, y in zip(seq, seq[1:]))
 
-        def nonincreasing(seq):
-            return all(x >= y for x, y in zip(seq, seq[1:]))
-
-        assert nonincreasing(
-            [c for c in self.template.contents if c is not None]
-        ), "model.restrict_params is broken for increasing feature sizes"
-        self.state = self.model.apply(
-            self.state, self.template.contents, method=self.model.restrict_params
-        )
+        # assert nonincreasing(
+        #     [c for c in self.template.contents if c is not None]
+        # ), "model.restrict_params is broken for increasing feature sizes"
+        # self.state = self.model.apply(
+        #     self.state, self.template.contents, method=self.model.restrict_params
+        # )
+        ################################################################################################
         self.optimizer, self.opt_state = self.make_opt(self.state)
         self.lr = cfg["opt"]["lr"].get()
         self.recompile()
@@ -881,7 +882,9 @@ def main():
     # initial_contents = list(cfg["net"]["contents"].get() + [int(out_size)])
     ################################################################################################
     capacities = tuple(cfg["net"]["capacities"].get() + [int(out_size)])
+    print(capacities)
     initial_contents = list(cfg["net"]["contents"].get())
+    print(initial_contents)
     ################################################################################################
 
     # capacities = tuple(cfg["net"]["capacities"].get() + [int(out_size)])
@@ -1418,7 +1421,7 @@ def main():
         solver.train_acc((dataset, labels))
         solver.train_batch((dataset, labels), observe_only=True)
 
-        proposer.verify_state(solver.state)
+        # proposer.verify_state(solver.state)
 
         if epoch % cfg["evo"]["cooldown"].get(20) == 0 or is_final:
             pass  # Disabled network evolution

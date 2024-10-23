@@ -33,24 +33,33 @@ def read_architecture(file_path):
     Reads a neural network architecture from a file and returns it as a string representation of a list.
 
     The file should contain lines starting with "Layer" followed by the number of neurons in that layer.
+    Handles cases where layers might be marked as "Not active".
     For example:
     Layer 1: 64 neurons
-    Layer 2: 32 neurons
+    Layer 2: Not active
+    Layer 3: 32 neurons
 
     Args:
         file_path (str): The path to the file containing the architecture description.
 
     Returns:
         str: A string representation of a list containing the number of neurons in each layer.
+              Inactive layers are represented as null.
     """
     with open(file_path, "r") as file:
         lines = file.readlines()
     architecture = []
     for line in lines:
         if line.startswith("Layer"):
-            neurons = int(line.split(":")[1].strip().split()[0])
-            architecture.append(neurons)
-    return str(architecture)
+            parts = line.split(":")[1].strip().split()
+            if parts[0] == "Not":
+                # Handle "Not active" case
+                architecture.append("null")
+            else:
+                # Handle normal case with number of neurons
+                neurons = int(parts[0])
+                architecture.append(neurons)
+    return str(architecture).replace("'null'", "null")
 
 
 def run_experiment(seed):
@@ -68,6 +77,7 @@ def run_experiment(seed):
         seed (int): The seed value to be used for the experiment.
     """
     config_path = "experiment2/default_config.yaml"
+    architecture_path = "senn_mlp/final_architectures/experiment2/"
 
     # Modify the seed
     modify_yaml_line(config_path, "seed", seed)
@@ -77,7 +87,7 @@ def run_experiment(seed):
     subprocess.run(["python", "experiment2.py", "--name", experiment_name])
 
     # Read and update the architecture
-    architecture_file = f"{experiment_name}_final_architecture.txt"
+    architecture_file = f"{architecture_path}{experiment_name}_final_architecture.txt"
     new_architecture = read_architecture(architecture_file)
     modify_yaml_line(config_path, "contents", new_architecture)
 
