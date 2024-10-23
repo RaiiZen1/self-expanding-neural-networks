@@ -68,6 +68,7 @@ def run_experiment(seed):
         seed (int): The seed value to be used for the experiment.
     """
     config_path = "experiment1/default_config.yaml"
+    architecture_path = "senn_mlp/final_architectures/experiment1/"
 
     # Modify the seed
     modify_yaml_line(config_path, "seed", seed)
@@ -77,7 +78,7 @@ def run_experiment(seed):
     subprocess.run(["python", "experiment1.py", "--name", experiment_name])
 
     # Read and update the architecture
-    architecture_file = f"{experiment_name}_final_architecture.txt"
+    architecture_file = f"{architecture_path}{experiment_name}_final_architecture.txt"
     new_architecture = read_architecture(architecture_file)
     modify_yaml_line(config_path, "contents", new_architecture)
 
@@ -91,7 +92,7 @@ def run_experiment(seed):
 
 
 # Run experiments for seeds 0 to 9
-for seed in range(9):
+for seed in range(10):
     print(f"Running experiment with seed {seed}")
     run_experiment(seed)
     print(f"Finished experiment with seed {seed}")

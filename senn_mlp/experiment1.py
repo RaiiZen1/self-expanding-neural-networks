@@ -1430,7 +1430,8 @@ def main():
     ################################################################################################
 
     # Optionally, save to a file
-    with open(f"{cfg['meta']['name'].get()}_final_architecture.txt", "w") as f:
+    path = "senn_mlp/final_architectures/experiment1/"  # Add trailing slash
+    with open(f"{path}{cfg['meta']['name'].get()}_final_architecture.txt", "w") as f:
         f.write("Final network architecture:\n")
         for i, layer_size in enumerate(template.contents):
             if layer_size is not None:
