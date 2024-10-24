@@ -88,9 +88,11 @@ def export_tensorboard_data(
 
 if __name__ == "__main__":
     # Example usage
+    no = 2
+    tag = "validation accuracy"
     export_tensorboard_data(
         logs_base_dir="/work/inestp02/xipe_markus/self-expanding-neural-networks/senn_mlp/logs",
-        prefix="ex1",  # This will match folders starting with "ex1"
-        tags=["validation loss"],
-        output_dir="/work/inestp02/xipe_markus/self-expanding-neural-networks/senn_mlp/tensorboard_exports/experiment1/loss",
+        prefix=f"ex{no}",
+        tags=[tag],
+        output_dir=f"/work/inestp02/xipe_markus/self-expanding-neural-networks/senn_mlp/tensorboard_exports/experiment{no}/{tag}",
     )
