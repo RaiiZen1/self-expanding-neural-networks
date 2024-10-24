@@ -67,8 +67,8 @@ def run_experiment(seed):
     Args:
         seed (int): The seed value to be used for the experiment.
     """
-    config_path = "experiment1/default_config.yaml"
-    architecture_path = "final_architectures/experiment1/"
+    config_path = "/work/inestp02/xipe_markus/self-expanding-neural-networks/senn_mlp/experiment1/default_config.yaml"
+    architecture_path = "/work/inestp02/xipe_markus/self-expanding-neural-networks/senn_mlp/final_architectures/experiment1/"
 
     # Modify the seed
     modify_yaml_line(config_path, "seed", seed)

@@ -1499,7 +1499,7 @@ def main():
     ################################################################################################
 
     # Optionally, save to a file
-    path = "final_architectures/experiment2/"  # Add trailing slash
+    path = "/work/inestp02/xipe_markus/self-expanding-neural-networks/senn_mlp/final_architectures/experiment2/"  # Add trailing slash
     with open(f"{path}{cfg['meta']['name'].get()}_final_architecture.txt", "w") as f:
         f.write("Final network architecture:\n")
         for i, layer_size in enumerate(template.contents):
