@@ -853,6 +853,53 @@ def locate_neurons(state, layer=0, wrt=0):
     return locate_linear(linear["kernel"][wrt], linear["bias"])
 
 
+########################################################################################
+def count_network_parameters(state):
+    """
+    Accurately counts parameters in a neural network state by considering all parameter types.
+
+    Args:
+        state: Network state dictionary containing parameters
+
+    Returns:
+        int: Total number of trainable parameters in the network
+    """
+
+    def count_array_params(arr):
+        """Helper function to count parameters in an array"""
+        return arr.size
+
+    # Use tree_map to traverse all parameters and count them
+    param_counts = jax.tree_util.tree_map(count_array_params, state["params"])
+
+    # Sum up all parameters
+    total_params = sum(jax.tree_util.tree_leaves(param_counts))
+
+    return total_params
+
+
+def log_architecture(
+    f, architecture, params, epoch=None, is_initial=False, is_final=False
+):
+    """Helper function to log architecture details to a file."""
+    if is_initial:
+        f.write("Initial Architecture:\n")
+    elif is_final:
+        f.write("\nFinal Architecture:\n")
+    else:
+        f.write(f"\nArchitecture after epoch {epoch}:\n")
+
+    for i, layer_size in enumerate(architecture):
+        if layer_size is not None:
+            f.write(f"Layer {i}: {layer_size} neurons\n")
+        else:
+            f.write(f"Layer {i}: Not active\n")
+    f.write(f"Total number of parameters: {params}\n")
+
+
+########################################################################################
+
+
 def main():
     cfg = experiment_utils.get_cfg("experiment2")
     writer = experiment_utils.set_writer(cfg)
@@ -1375,140 +1422,121 @@ def main():
     refresh_evaluators()
 
     ################################################################################################
-    print("Initial network architecture:")
-    for i, layer_size in enumerate(template.contents):
-        if layer_size is not None:
-            print(f"Layer {i}: {layer_size} neurons")
-        else:
-            print(f"Layer {i}: Not active")
+    path = "/work/inestp02/xipe_markus/self-expanding-neural-networks/senn_mlp/final_architectures/experiment2/"
+    architecture_file = f"{path}{cfg['meta']['name'].get()}_architecture_history.txt"
 
-    initial_params = sum(
-        jax.tree_util.tree_leaves(
-            jax.tree_map(lambda x: x.size, solver.state["params"])
-        )
-    )
-    print(f"Initial number of parameters: {initial_params}")
-    print("\n" + "=" * 50 + "\n")  # This adds a separator for clarity
-    ################################################################################################
+    with open(architecture_file, "w") as f:
+        # Log initial architecture
+        initial_params = count_network_parameters(solver.state)
+        log_architecture(f, template.contents, initial_params, is_initial=True)
+        ################################################################################################
 
-    layer_cooldown = 0
-    initial_epoch = initial_train_state.epoch
-    for epoch in range(initial_epoch, max_epochs):
-        is_final = (epoch == max_epochs - 1) or (epoch == 0)
+        layer_cooldown = 0
+        initial_epoch = initial_train_state.epoch
+        for epoch in range(initial_epoch, max_epochs):
+            is_final = (epoch == max_epochs - 1) or (epoch == 0)
 
-        for bidx, batch in enumerate(train_sampler.batches()):
+            for bidx, batch in enumerate(train_sampler.batches()):
 
-            writer.set_as_default(step=bidx + train_sampler.num_batches() * epoch)
-            bdata, blabels = batch
-            solver.train_batch(batch)
+                writer.set_as_default(step=bidx + train_sampler.num_batches() * epoch)
+                bdata, blabels = batch
+                solver.train_batch(batch)
 
-        solver.test_batch((testset, testlabels))
-        solver.test_acc((testset, testlabels))
-        solver.train_acc((dataset, labels))
-        solver.train_batch((dataset, labels), observe_only=True)
+            solver.test_batch((testset, testlabels))
+            solver.test_acc((testset, testlabels))
+            solver.train_acc((dataset, labels))
+            solver.train_batch((dataset, labels), observe_only=True)
 
-        proposer.verify_state(solver.state)
+            proposer.verify_state(solver.state)
 
-        if epoch % cfg["evo"]["cooldown"].get(20) == 0 or is_final:
-            summary.scalar(f"outer_baseline", baseline_eval())
-            conts = solver.template.contents
-            caps = solver.template.capacities
+            ################################################################################################
+            architecture_changed = False
+            ################################################################################################
 
-            def consider(stuff):
-                layeridx, (cont, cap) = stuff
-                if cont is not None:
-                    if cont < cap - 1:
-                        return consider_adding_width(
-                            evaluators[layeridx],
-                            validators[layeridx],
-                            layeridx,
-                            final=is_final,
-                        )
+            if epoch % cfg["evo"]["cooldown"].get(20) == 0 or is_final:
+                summary.scalar(f"outer_baseline", baseline_eval())
+                conts = solver.template.contents
+                caps = solver.template.capacities
+
+                def consider(stuff):
+                    layeridx, (cont, cap) = stuff
+                    if cont is not None:
+                        if cont < cap - 1:
+                            return consider_adding_width(
+                                evaluators[layeridx],
+                                validators[layeridx],
+                                layeridx,
+                                final=is_final,
+                            )
+                        else:
+                            return None
                     else:
-                        return None
-                else:
-                    if (
-                        layeridx == 0
-                        or conts[layeridx - 1] is not None
-                        and layer_cooldown <= 0
-                    ):
-                        return consider_inserting_layer(
-                            evaluators[layeridx], validators[layeridx], layeridx
-                        )
-                    else:
-                        return None
+                        if (
+                            layeridx == 0
+                            or conts[layeridx - 1] is not None
+                            and layer_cooldown <= 0
+                        ):
+                            return consider_inserting_layer(
+                                evaluators[layeridx], validators[layeridx], layeridx
+                            )
+                        else:
+                            return None
 
-            best_props = list(map(consider, enumerate(zip(conts, caps))))
-            best_props = [p for p in best_props if p is not None]
-            while len(best_props) > 0:
-                best = max(best_props, key=lambda p: p.ratio if p is not None else 0.0)
-                best.apply()
-                just_added = True
-                if isinstance(best, DepthModification):
-                    print("recompiling...")
-                    solver.recompile()
-                    print(solver.state)
-                    layer_cooldown = cfg["evo"]["layer_cooldown"].get(0)
-                else:
-                    print("recompiling...")
-                    solver.recompile()
-                if not cfg["evo"]["recursive"].get(False):
-                    break
                 best_props = list(map(consider, enumerate(zip(conts, caps))))
                 best_props = [p for p in best_props if p is not None]
+                while len(best_props) > 0:
+                    best = max(
+                        best_props, key=lambda p: p.ratio if p is not None else 0.0
+                    )
+                    best.apply()
+                    just_added = True
+                    ################################################################################################
+                    architecture_changed = True
+                    ################################################################################################
+                    if isinstance(best, DepthModification):
+                        print("recompiling...")
+                        solver.recompile()
+                        print(solver.state)
+                        layer_cooldown = cfg["evo"]["layer_cooldown"].get(0)
+                    else:
+                        print("recompiling...")
+                        solver.recompile()
+                    if not cfg["evo"]["recursive"].get(False):
+                        break
+                    best_props = list(map(consider, enumerate(zip(conts, caps))))
+                    best_props = [p for p in best_props if p is not None]
 
-            if layer_cooldown > 0:
-                layer_cooldown -= 1
+                ################################################################################################
+                # Log architecture if it changed during this epoch
+                if architecture_changed:
+                    current_params = count_network_parameters(solver.state)
+                    log_architecture(f, template.contents, current_params, epoch=epoch)
+                ################################################################################################
 
-        if (
-            cfg["checkpointing"]["enable"].get(False)
-            and epoch % cfg["checkpointing"]["cooldown"].get() == 0
-        ):
+                if layer_cooldown > 0:
+                    layer_cooldown -= 1
 
-            ckpt_dir = (
-                f"{cfg['checkpointing']['directory'].get()}/{cfg['meta']['name'].get()}"
-            )
+            if (
+                cfg["checkpointing"]["enable"].get(False)
+                and epoch % cfg["checkpointing"]["cooldown"].get() == 0
+            ):
 
-            checkpoint_data = TrainState(
-                epoch + 1, tuple(template.contents), solver.state
-            )
-            checkpoints.save_checkpoint(
-                ckpt_dir=ckpt_dir, target=checkpoint_data, step=epoch
-            )
-            pass
+                ckpt_dir = f"{cfg['checkpointing']['directory'].get()}/{cfg['meta']['name'].get()}"
 
-        rtpt.step()
+                checkpoint_data = TrainState(
+                    epoch + 1, tuple(template.contents), solver.state
+                )
+                checkpoints.save_checkpoint(
+                    ckpt_dir=ckpt_dir, target=checkpoint_data, step=epoch
+                )
+                pass
 
-    ################################################################################################
-    print("Final network architecture:")
-    for i, layer_size in enumerate(template.contents):
-        if layer_size is not None:
-            print(f"Layer {i}: {layer_size} neurons")
-        else:
-            print(f"Layer {i}: Not active")
+            rtpt.step()
 
-    final_params = sum(
-        jax.tree_util.tree_leaves(
-            jax.tree_map(lambda x: x.size, solver.state["params"])
-        )
-    )
-    print(f"Final number of parameters: {final_params}")
-
-    print(f"\nChange in number of parameters: {final_params - initial_params}")
-    print(f"Relative change: {(final_params - initial_params) / initial_params:.2%}")
-    ################################################################################################
-
-    # Optionally, save to a file
-    path = "/work/inestp02/xipe_markus/self-expanding-neural-networks/senn_mlp/final_architectures/experiment2/"  # Add trailing slash
-    with open(f"{path}{cfg['meta']['name'].get()}_final_architecture.txt", "w") as f:
-        f.write("Final network architecture:\n")
-        for i, layer_size in enumerate(template.contents):
-            if layer_size is not None:
-                f.write(f"Layer {i}: {layer_size} neurons\n")
-            else:
-                f.write(f"Layer {i}: Not active\n")
-        f.write(f"Total number of parameters: {final_params}\n")
-
+        ################################################################################################
+        # Log final architecture
+        final_params = count_network_parameters(solver.state)
+        log_architecture(f, template.contents, final_params, is_final=True)
     ################################################################################################
 
     exit()
