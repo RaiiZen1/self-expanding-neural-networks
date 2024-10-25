@@ -5,6 +5,14 @@ import subprocess
 def modify_yaml_line(file_path, start_string, new_value):
     """
     Modifies a specific line in a YAML file that starts with a given string.
+
+    Args:
+        file_path (str): The path to the YAML file to be modified.
+        start_string (str): The starting string of the line to be modified.
+        new_value (str): The new value to replace the existing value in the line.
+
+    Returns:
+        None
     """
     with open(file_path, "r") as file:
         lines = file.readlines()
