@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import os
 from glob import glob
+import argparse
 
 
 def export_tensorboard_data(
@@ -87,12 +88,20 @@ def export_tensorboard_data(
 
 
 if __name__ == "__main__":
-    # Example usage
-    no = 2
-    tag = "validation accuracy"
+    # Set up argument parser
+    parser = argparse.ArgumentParser(
+        description="Export TensorBoard data to CSV files."
+    )
+    parser.add_argument("--no", type=int, required=True, help="Experiment number")
+    parser.add_argument("--tag", type=str, required=True, help="Tag to export")
+
+    # Parse arguments
+    args = parser.parse_args()
+
+    # Use the arguments in the export function
     export_tensorboard_data(
         logs_base_dir="/work/inestp02/xipe_markus/self-expanding-neural-networks/senn_mlp/logs",
-        prefix=f"ex{no}",
-        tags=[tag],
-        output_dir=f"/work/inestp02/xipe_markus/self-expanding-neural-networks/senn_mlp/tensorboard_exports/experiment{no}/{tag}",
+        prefix=f"ex{args.no}",
+        tags=[args.tag],
+        output_dir=f"/work/inestp02/xipe_markus/self-expanding-neural-networks/senn_mlp/tensorboard_exports/experiment{args.no}/{args.tag}",
     )
