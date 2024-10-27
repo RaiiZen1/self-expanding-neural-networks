@@ -28,73 +28,121 @@ def modify_yaml_line(file_path, start_string, new_value):
         file.writelines(lines)
 
 
-def read_architecture(file_path):
+def read_architectures(file_path):
     """
-    Reads a neural network architecture from a file and returns it as a string representation of a list.
-
-    The file should contain lines starting with "Layer" followed by the number of neurons in that layer.
-    For example:
-    Layer 1: 64 neurons
-    Layer 2: 32 neurons
+    Reads all architectures from the history file and returns them as a list of tuples
+    containing (architecture_string, architecture_list).
 
     Args:
-        file_path (str): The path to the file containing the architecture description.
+        file_path (str): Path to the architecture history file
 
     Returns:
-        str: A string representation of a list containing the number of neurons in each layer.
+        list: List of tuples (architecture_string, architecture_list)
     """
+    architectures = []
+    current_architecture = []
+
     with open(file_path, "r") as file:
         lines = file.readlines()
-    architecture = []
+
     for line in lines:
         if line.startswith("Layer"):
-            neurons = int(line.split(":")[1].strip().split()[0])
-            architecture.append(neurons)
-    return str(architecture)
+            parts = line.split(":")[1].strip().split()
+            if parts[0] == "Not":
+                current_architecture.append(None)
+            else:
+                current_architecture.append(int(parts[0]))
+        elif line.startswith("Total") or line.startswith("\n"):
+            if (
+                current_architecture
+            ):  # Only process if we have collected an architecture
+                # Create a filename-friendly string representation that includes null layers
+                arch_str = "_".join(
+                    "n" if x is None else str(x) for x in current_architecture
+                )
+                architectures.append((arch_str, current_architecture.copy()))
+                current_architecture = []  # Reset for next architecture
+
+    return architectures
 
 
-def run_experiment(seed):
+def format_architecture_for_yaml(architecture):
     """
-    Runs a two-phase experiment with a given seed.
-
-    This function performs the following steps:
-    1. Modifies the seed in the configuration file.
-    2. Runs the first experiment using the modified configuration.
-    3. Reads and updates the architecture from the results of the first experiment.
-    4. Runs the second experiment using the updated architecture.
-    5. Restores the original seed and architecture in the configuration file.
+    Converts an architecture list to a YAML-compatible string.
 
     Args:
-        seed (int): The seed value to be used for the experiment.
+        architecture (list): List of integers/None representing the architecture
+
+    Returns:
+        str: YAML-compatible string representation of the architecture
+    """
+    return str(architecture).replace("None", "null")
+
+
+def run_fixed_experiment(ex_name, seed, architecture_str, architecture_list):
+    """
+    Runs a fixed MLP experiment with a given seed and architecture.
+
+    Args:
+        seed (int): Seed value for the experiment
+        architecture_str (str): String representation of architecture for naming
+        architecture_list (list): List of integers/None representing the architecture
+    """
+    config_path = "/work/inestp02/xipe_markus/self-expanding-neural-networks/senn_mlp/experiment1/default_config.yaml"
+
+    # Modify the seed and architecture
+    modify_yaml_line(config_path, "seed", seed)
+    modify_yaml_line(
+        config_path, "contents", format_architecture_for_yaml(architecture_list)
+    )
+
+    # Run the fixed experiment with the specific architecture
+    experiment_name = f"{ex_name}.{seed}.{architecture_str}"
+    subprocess.run(["python", "experiment1_fixed.py", "--name", experiment_name])
+
+
+def run_experiments(seed):
+    """
+    Runs the initial experiment and then trains fixed MLPs for each architecture encountered.
+
+    Args:
+        seed (int): The seed value to be used for the experiments
     """
     config_path = "/work/inestp02/xipe_markus/self-expanding-neural-networks/senn_mlp/experiment1/default_config.yaml"
     architecture_path = "/work/inestp02/xipe_markus/self-expanding-neural-networks/senn_mlp/final_architectures/experiment1/"
 
-    # Modify the seed
+    # First, run the original expanding network experiment
     modify_yaml_line(config_path, "seed", seed)
-
-    # Run the first experiment
     experiment_name = f"ex1.{seed}"
     subprocess.run(["python", "experiment1.py", "--name", experiment_name])
 
-    # Read and update the architecture
-    architecture_file = f"{architecture_path}{experiment_name}_final_architecture.txt"
-    new_architecture = read_architecture(architecture_file)
-    modify_yaml_line(config_path, "contents", new_architecture)
+    # Read all architectures from the history file
+    architecture_file = f"{architecture_path}{experiment_name}_architecture_history.txt"
+    architectures = read_architectures(architecture_file)
 
-    # Run the second experiment
-    experiment_name = f"ex1_fixed.{seed}"
-    subprocess.run(["python", "experiment1_fixed.py", "--name", experiment_name])
+    # Run fixed MLP experiments for each unique architecture
+    seen_architectures = set()
+    for arch_str, arch_list in architectures:
+        # Convert to tuple for hashability, keeping None values
+        arch_tuple = tuple(arch_list)
+        if arch_tuple not in seen_architectures:
+            seen_architectures.add(arch_tuple)
+            run_fixed_experiment(experiment_name, seed, arch_str, arch_list)
 
-    # Restore the original seed and architecture
+    # Restore the original configuration
     modify_yaml_line(config_path, "seed", 0)
     modify_yaml_line(config_path, "contents", "[1]")
 
 
 # Run experiments for seeds 0 to 9
-for seed in range(10):
-    print(f"Running experiment with seed {seed}")
-    run_experiment(seed)
-    print(f"Finished experiment with seed {seed}")
+def main():
+    for seed in range(10):
+        print(f"Running experiments with seed {seed}")
+        run_experiments(seed)
+        print(f"Finished experiments with seed {seed}")
 
-print("All experiments completed")
+    print("All experiments completed")
+
+
+if __name__ == "__main__":
+    main()
