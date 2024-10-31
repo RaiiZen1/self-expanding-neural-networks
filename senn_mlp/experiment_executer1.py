@@ -136,7 +136,7 @@ def run_experiments(seed):
 
 # Run experiments for seeds 0 to 9
 def main():
-    for seed in range(10):
+    for seed in range(10, 30):
         print(f"Running experiments with seed {seed}")
         run_experiments(seed)
         print(f"Finished experiments with seed {seed}")
